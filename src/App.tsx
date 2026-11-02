@@ -107,13 +107,17 @@ export default function Home(){
   async function download(){
     if(!game)return;
     const rows=game.history.map(r=>44+Math.ceil(r.teams.length/2)*116);
-    const canvas=document.createElement('canvas');canvas.width=1000;canvas.height=340+rows.reduce((a,b)=>a+b,0)+160;
+    const participantRows:string[]=[];
+    for(let i=0;i<game.players.length;i+=2)participantRows.push(game.players.slice(i,i+2).map(p=>p.name).join(' · '));
+    const headerHeight=340+participantRows.length*36;
+    const canvas=document.createElement('canvas');canvas.width=1000;canvas.height=headerHeight+rows.reduce((a,b)=>a+b,0)+160;
     const ctx=canvas.getContext('2d');if(!ctx)return;
     ctx.fillStyle='#fbf9f5';ctx.fillRect(0,0,1000,canvas.height);ctx.fillStyle='#665078';ctx.font='bold 30px sans-serif';ctx.fillText('同词相遇',56,68);
     ctx.textAlign='center';ctx.font='bold 48px sans-serif';ctx.fillText('你们的脑回路相遇了',500,160);
     ctx.font='26px sans-serif';ctx.fillStyle='#81718f';ctx.fillText(`用了 ${game.history.length} 轮，我们都想到了「${game.history.at(-1)?.words[0]}」`,500,222,888);
     ctx.font='21px sans-serif';ctx.fillText(`${game.capacity} 人房 · ${game.code} · ${new Date(game.createdAt).toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'})}`,500,275);
-    let y=330;
+    ctx.font='22px sans-serif';participantRows.forEach((names,i)=>ctx.fillText(`玩家：${names}`,500,316+i*36,888));
+    let y=headerHeight-10;
     game.history.forEach((r,i)=>{
       ctx.textAlign='left';ctx.font='20px sans-serif';ctx.fillStyle='#81718f';ctx.fillText(`第 ${r.round} 轮 · ${r.matched?'全员同词':r.merged.length?'同词合队':'继续靠近'}`,56,y);
       r.teams.forEach((t,j)=>{
@@ -126,7 +130,7 @@ export default function Home(){
       y+=rows[i];
     });
     ctx.strokeStyle='#dfd5e5';ctx.beginPath();ctx.moveTo(56,y);ctx.lineTo(944,y);ctx.stroke();ctx.textAlign='left';ctx.fillStyle='#665078';ctx.font='bold 28px sans-serif';ctx.fillText('同词相遇',56,y+60);ctx.fillStyle='#93839f';ctx.font='22px sans-serif';ctx.fillText('和朋友的脑回路碰个面',56,y+100);
-    const blob=await new Promise<Blob|null>(r=>canvas.toBlob(r,'image/png'));if(!blob){setNotice('图片没能保存，请重试');return}const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`同词相遇-${game.code}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),5000);setNotice('默契记录已生成');
+    const blob=await new Promise<Blob|null>(r=>canvas.toBlob(r,'image/png'));if(!blob){setNotice('图片没能保存，请重试');return}const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;const names=game.players.map(p=>p.name.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,'_')).join('-');link.download=`同词相遇-${game.code}-${names}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),5000);setNotice('默契记录已生成');
   }
   const me=game?.players.find(p=>p.id===game.meId);
   const myTeam=game?.teams.find(t=>t.playerIds.includes(game.meId));
