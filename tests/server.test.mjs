@@ -67,6 +67,71 @@ test('simultaneous joins cannot overfill a room',async()=>{
   assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
 });
 
+test('three-person rooms expose the selected capacity, wait for all seats, and validate capacity',async()=>{
+  for(const capacity of [1,5,'3',null])assert.equal((await call(token(),{action:'create',capacity})).status,400);
+  const a=token(),b=token(),c=token();
+  let g=(await call(a,{action:'create',capacity:3})).data;
+  assert.equal(g.capacity,3);assert.equal(g.phase,'waiting');
+  g=(await call(b,{action:'join',code:g.code})).data;
+  assert.equal(g.phase,'waiting');assert.equal(g.players.length,2);
+  assert.equal((await call(a,{action:'submit',code:g.code,gameId:g.gameId,round:g.round,word:'等人'})).status,409);
+  g=(await call(c,{action:'join',code:g.code})).data;
+  assert.equal(g.phase,'playing');assert.equal(g.players.length,3);
+  assert.equal((await call(token(),{action:'join',code:g.code})).status,409);
+});
+
+test('simultaneous four-person joins fill exactly four seats',async()=>{
+  const owner=token();const created=await call(owner,{action:'create',capacity:4});const code=created.data.code;
+  const results=await Promise.all(Array.from({length:5},()=>call(token(),{action:'join',code})));
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,200,200,409,409]);
+  const g=(await call(owner,undefined,code)).data;
+  assert.equal(g.players.length,4);assert.equal(g.phase,'playing');assert.equal(g.teams.length,4);
+});
+
+test('four-person HTTP flow isolates live team drafts, confirms once, reveals, and replays',async()=>{
+  const users=Array.from({length:4},token);
+  let g=(await call(users[0],{action:'create',capacity:4,name:'房主'})).data;
+  const code=g.code;
+  for(const key of users.slice(1))g=(await call(key,{action:'join',code})).data;
+  const cmd=(action,word,sequence)=>({action,code,gameId:g.gameId,round:g.round,word,sequence});
+  await call(users[0],cmd('draft','独立秘密',1));
+  assert.ok(!JSON.stringify((await call(users[1],undefined,code)).data).includes('独立秘密'));
+  await Promise.all(users.map((key,i)=>call(key,cmd('submit',i<2?'猫':'狗'))));
+  g=(await call(users[0],undefined,code)).data;
+  assert.equal(g.phase,'reveal');assert.deepEqual(g.teams.map(t=>t.playerIds.length),[2,2]);
+  await Promise.all(users.map(key=>call(key,cmd('next'))));
+  g=(await call(users[0],undefined,code)).data;assert.equal(g.round,2);
+  assert.equal((await call(users[0],cmd('draft','队内秘密',2))).status,200);
+  await call(users[0],cmd('draft','旧填写',1));
+  const teammate=(await call(users[1],undefined,code)).data;
+  assert.equal(teammate.players[0].draft,'队内秘密');
+  const resumed=(await call(users[0],undefined,code)).data;
+  assert.equal(resumed.myDraft,'队内秘密');assert.equal(resumed.myDraftSequence,2);
+  for(const key of users.slice(2)){
+    const view=(await call(key,undefined,code)).data;
+    assert.equal(view.players[0].draft,null);
+    assert.ok(!JSON.stringify(view).includes('队内秘密'));
+    assert.ok(!JSON.stringify(view).includes('tokenHash'));
+  }
+  await call(users[0],cmd('submit','月'));
+  assert.equal((await call(users[0],cmd('draft','确认后改写',3))).status,409);
+  assert.equal((await call(users[0],cmd('submit','确认后改写'))).status,409);
+  await call(users[1],cmd('submit','月'));
+  assert.equal((await call(users[0],undefined,code)).data.myTeamWord,'月');
+  const hidden=(await call(users[2],undefined,code)).data;
+  assert.equal(hidden.phase,'playing');assert.equal(hidden.history.length,1);
+  assert.ok(!JSON.stringify(hidden).includes('月'));
+  await Promise.all(users.slice(2).map(key=>call(key,cmd('submit','月'))));
+  g=(await call(users[0],undefined,code)).data;
+  assert.equal(g.phase,'matched');assert.deepEqual(g.history[1].words,['月','月']);
+  assert.equal(g.teams.length,1);assert.equal(g.teams[0].playerIds.length,4);
+  const stale=cmd('draft','过期秘密',100);
+  await Promise.all(users.map(key=>call(key,cmd('next'))));
+  g=(await call(users[0],undefined,code)).data;
+  assert.equal(g.round,1);assert.equal(g.history.length,0);assert.equal(g.teams.length,4);
+  assert.equal((await call(users[0],stale)).status,409);
+});
+
 test('invalid body, oversized body, unsupported methods, and foreign origins are rejected',async()=>{
   const headers={Authorization:'Bearer '+token(),'Content-Type':'application/json'};
   const raw=body=>fetch(base+'/api/room',{method:'POST',headers,body});

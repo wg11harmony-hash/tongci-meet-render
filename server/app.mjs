@@ -87,11 +87,11 @@ export function createApp({ distDir = resolve('dist'), ttlMs = 86400000, maxRoom
       if (rooms.size >= maxRooms) throw new GameError('房间暂时有点满，请稍后再试',503);
       let code;
       do { code = Array.from({length:6},()=>alphabet[randomInt(alphabet.length)]).join(''); } while (rooms.has(code));
-      const record = {state:newRoom(code,tokenHash,input.name,now()),revision:0,expiresAt:now()+ttlMs};
+      const record = {state:newRoom(code,tokenHash,input.name,now(),input.capacity),revision:0,expiresAt:now()+ttlMs};
       rooms.set(code,record);
       return sendJson(response,201,publicRoom(record.state,tokenHash,record.revision,now()));
     }
-    if (!['join','submit','next','heartbeat'].includes(input.action)) throw new GameError('没有找到这个操作');
+    if (!['join','draft','submit','next','heartbeat'].includes(input.action)) throw new GameError('没有找到这个操作');
     const code = typeof input.code === 'string' ? input.code.trim().toUpperCase() : '';
     const record = getRoom(code);
     const updated = structuredClone(record.state);
